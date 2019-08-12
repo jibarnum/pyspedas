@@ -4,22 +4,20 @@
 from dateutil.parser import parse
 import os
 
-import pytplot
-
-from .download_files_utilities import *
+from pytplot import cdf_to_tplot
 from .orbit_time import orbit_time
+from .download_files_utilities import *
+from .read_kp import *
+from .kp_to_tplot import *
 
 
-def maven_filenames(filenames=None,
-                    instruments=None,
-                    level='l2',
-                    insitu=True,
-                    iuvs=False,
+def maven_filenames(instruments=None,
                     start_date='2014-01-01',
                     end_date='2020-01-01',
                     update_prefs=False,
                     only_update_prefs=False,
-                    local_dir=None):
+                    local_dir=None,
+                    public=True):
     """
     This function identifies which MAVEN data to download.
     """
@@ -38,25 +36,31 @@ def maven_filenames(filenames=None,
         set_new_data_root_dir()
         if only_update_prefs:
             return
-    
-    public = get_access()
+
     if not public:
         get_uname_and_password()
 
-    if filenames is None:
-        if insitu and iuvs:
-            print("Can't request both INSITU and IUVS in one query.")
-            return
-        if not insitu and not iuvs:
-            print("If not specifying filename(s) to download, Must specify either insitu=True or iuvs=True.")
-            return
-        
+    # No instruments indicated --> error
     if instruments is None:
-        instruments = ['kp']
-        if insitu:
-            level = 'insitu'
-        if iuvs:
-            level = 'iuvs'
+        print("You must specify at least one instrument from which you want data downloaded.")
+        return
+
+    # Default data level to download for each instrument is L2, but if KP data is downloaded,
+    # it will be reset for that "instrument" below
+    level = ['l2']*len(instruments)
+
+    # If downloading KP dada, figure out if you're downloading insitu or iuvs (but not both)
+    if all(x in instruments for x in ['kp-insitu', 'kp-iuvs']):
+        print("Can't request both INSITU and IUVS in one query.")
+        return
+    elif 'kp-insitu' in instruments and 'kp-iuvs' not in instruments:
+        kp_index = instruments.index('kp-insitu')
+        instruments[kp_index] = 'kp'
+        level[kp_index] = 'insitu'
+    elif 'kp-iuvs' in instruments and 'kp-insitu' not in instruments:
+        kp_index = instruments.index('kp-iuvs')
+        instruments[kp_index] = 'kp'
+        level[kp_index] = 'iuvs'
 
     # Set data download location
     if local_dir is None:
@@ -66,19 +70,17 @@ def maven_filenames(filenames=None,
 
     # Keep track of files to download
     maven_files = {}
-    for instrument in instruments:
+    for i, instrument in enumerate(instruments):
         # Build the query to the website
         query_args = []
         query_args.append("instrument=" + instrument)
-        query_args.append("level=" + level)
-        if filenames is not None:
-            query_args.append("file=" + filenames)
+        query_args.append("level=" + level[i])
         query_args.append("start_date=" + start_date)
         query_args.append("end_date=" + end_date)
         if level == 'iuvs':
             query_args.append("file_extension=tab")
 
-        data_dir = os.path.join(mvn_root_data_dir, 'maven', 'data', 'sci', instrument, level)
+        data_dir = os.path.join(mvn_root_data_dir, 'maven', 'data', 'sci', instrument, level[i])
         
         query = '&'.join(query_args)
         
@@ -91,16 +93,13 @@ def maven_filenames(filenames=None,
 
         s = s.split(',')
 
-        maven_files[instrument] = [s, data_dir, public]
+        maven_files[instrument] = [s, data_dir, public, level[i]]
 
     return maven_files
 
 
-def load_data(filenames=None,
-              instruments=None,
-              level='l2',
-              insitu=True,
-              iuvs=False,
+def load_data(instruments=None,
+              kp_instruments=None,
               start_date='2014-01-01',
               end_date='2020-01-01',
               update_prefs=False,
@@ -113,24 +112,29 @@ def load_data(filenames=None,
               varformat=None,
               prefix='',
               suffix='',
-              get_support_data=False):
+              get_support_data=False,
+              public=True):
     """
     This function downloads MAVEN data loads it into tplot variables, if applicable.
     """
 
     # 1. Download files
 
-    maven_files = maven_filenames(filenames, instruments, level, insitu, iuvs, start_date, end_date, update_prefs,
-                                  only_update_prefs, local_dir)
+    maven_files = maven_filenames(instruments, start_date, end_date, update_prefs, only_update_prefs, local_dir, public)
 
     # Keep track of what files are downloaded
     downloaded_files = []
 
+    # Track if KP files were downloaded or not
+    kp_downloaded = False
+
+    # Actually download files here
     for instr in maven_files.keys():
         if maven_files[instr]:
             s = maven_files[instr][0]
             data_dir = maven_files[instr][1]
             public = maven_files[instr][2]
+            level = maven_files[instr][3]
             if list_files:
                 for f in s:
                     print(f)
@@ -173,6 +177,9 @@ def load_data(filenames=None,
 
                 downloaded_files.append(os.path.join(full_path, f))
 
+            if instr == 'kp':
+                kp_downloaded = True
+
     # 2. Load files into tplot
 
     if downloaded_files:
@@ -180,12 +187,26 @@ def load_data(filenames=None,
         if isinstance(downloaded_files[0], list):
             downloaded_files = [item for sublist in downloaded_files for item in sublist]
 
-        # Only load in files into tplot if we actually downloaded CDF files
+        # If CDF files downloaded, grab them to load into tplot
         cdf_files = [f for f in downloaded_files if '.cdf' in f]
 
+        # If KP files downloaded, grab them to load into tplot
+        kp_files = [f for f in downloaded_files if '.tab' in f]
+
         if not download_only:
-            # Create tplot variables
-            downloaded_tplot_vars = pytplot.cdf_to_tplot(cdf_files, varformat=varformat,
-                                                         get_support_data=get_support_data, prefix=prefix,
-                                                         suffix=suffix, merge=True)
-            return downloaded_tplot_vars
+            stored_vars = []
+            # Create CDF tplot variables
+            stored_vars.extend(cdf_to_tplot(cdf_files, varformat=varformat, get_support_data=get_support_data,
+                                            prefix=prefix, suffix=suffix, merge=True))
+            # Create KP in situ tplot vars
+            # Currently, no functionality to put KP iuvs data into tplot vars,
+            # but could use the read_kp() function elsewhere to load KP iuvs data
+            # into a list object
+            if kp_downloaded:
+                kp_read = read(kp_files, kp_instruments)
+                if 'insitu' in kp_files[0]:
+                    stored_kp_vars = kp_to_tplot(kp_read)
+                    stored_vars.extend(stored_kp_vars)
+
+            return stored_vars
+

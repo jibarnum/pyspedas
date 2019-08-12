@@ -3,7 +3,7 @@
 File:
     download_file_utilities.py
 
-Desrciption:
+Description:
     Functions used by maven_load.
 """
 
@@ -120,19 +120,6 @@ def merge_orbit_files():
     return
 
 
-def get_access():
-    import os
-    toolkit_path = os.path.dirname(__file__)
-    with open(os.path.join(toolkit_path, 'access.txt'), 'r') as f:
-        f.readline()
-        s = f.readline().rstrip()
-        s = s.split(' ')
-        if s[1] == '1':
-            return False
-        else:
-            return True
-
-
 def get_root_data_dir():
     import pyspedas
     # Get preferred data download location for pyspedas project
@@ -141,32 +128,7 @@ def get_root_data_dir():
         download_path = prefs['data_dir']
     else:
         raise NameError('data_dir is not found in spd_prefs.txt')
-
-    import os
-    # Get the "toolkit path" (where MAVEN download code is)
-    full_path = os.path.realpath(__file__)
-    toolkit_path = os.path.dirname(full_path)
-    if not os.path.exists(os.path.join(toolkit_path, 'mvn_toolkit_prefs.txt')):
-        create_pref_file(toolkit_path, download_path)
-
-    with open(os.path.join(toolkit_path, 'mvn_toolkit_prefs.txt'), 'r') as f:
-        f.readline()
-        s = f.readline().rstrip()
-        # Get rid of first space
-        s = s.split(' ')
-        nothing = ' '
-    return nothing.join(s[1:])
-
-
-def create_pref_file(toolkit_path, download_path):
-    import os
-
-    # Put data download path into preferences file
-    with open(os.path.join(toolkit_path, 'mvn_toolkit_prefs.txt'), 'w') as f:
-        f.write("'; IDL Toolkit Data Preferences File'\n")
-        f.write('mvn_root_data_dir: ' + download_path)
-
-    return
+    return download_path
 
 
 def set_new_data_root_dir():
@@ -188,11 +150,6 @@ def set_new_data_root_dir():
     with open(pref_file, 'w') as f:
         for line in content:
             f.write(line)
-
-    # Also edit the mvn_toolkit_prefs file to reflect the new data download location
-    full_path = os.path.realpath(__file__)
-    toolkit_path = os.path.dirname(full_path)
-    create_pref_file(toolkit_path, download_path)
 
 
 def get_new_files(files_on_site, data_dir, instrument, level):

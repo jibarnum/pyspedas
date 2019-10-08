@@ -33,12 +33,14 @@ def get_filenames(query, public):
     return page.read().decode("utf-8")
 
 
-def get_file_from_site(filename, public, data_dir):
+def get_file_from_site(filename, public, data_dir, files_on_hd=None):
     import os
     import urllib
 
-    public_url = 'https://lasp.colorado.edu/maven/sdc/public/files/api/v1/search/science/fn_metadata/download' + '?file=' + filename
-    private_url = 'https://lasp.colorado.edu/maven/sdc/service/files/api/v1/search/science/fn_metadata/download' + '?file=' + filename
+    public_url = 'https://lasp.colorado.edu/maven/sdc/public/files/api/v1/search/science/fn_metadata/download' + \
+                 '?file=' + filename
+    private_url = 'https://lasp.colorado.edu/maven/sdc/service/files/api/v1/search/science/fn_metadata/download' + \
+                  '?file=' + filename
 
     if not public:
         username = uname
@@ -52,9 +54,15 @@ def get_file_from_site(filename, public, data_dir):
     else:
         page = urllib.request.urlopen(public_url)
 
+    # If we've already downloaded the file, and we've asked to skip downloads of those files,
+    # skip the file download.
+    if files_on_hd is not None:
+        if filename in files_on_hd:
+            return
+
+    # Otherwise, just download
     with open(os.path.join(data_dir, filename), "wb") as code:
         code.write(page.read())
-
     return
 
 
@@ -156,8 +164,8 @@ def get_new_files(files_on_site, data_dir, instrument, level):
     import os
     import re
 
-    fos = files_on_site
     files_on_hd = []
+    overlap_files = []
     for (dir, _, files) in os.walk(data_dir):
         for f in files:
             if re.match('mvn_' + instrument + '_' + level + '_*', f):
@@ -165,9 +173,9 @@ def get_new_files(files_on_site, data_dir, instrument, level):
 
     x = set(files_on_hd).intersection(files_on_site)
     for matched_file in x:
-        fos.remove(matched_file)
+        overlap_files.append(matched_file)
 
-    return fos
+    return overlap_files
 
 
 def create_dir_if_needed(f, data_dir, level):

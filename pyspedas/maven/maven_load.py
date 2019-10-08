@@ -140,9 +140,6 @@ def load_data(instruments=None,
                     print(f)
                 return
 
-            if new_files:
-                s = get_new_files(s, data_dir, instr, level)
-
             print("Your request will download a total of: "+str(len(s))+" files for instrument "+str(instr))
             print('Would you like to proceed with the download? ')
             valid_response = False
@@ -167,12 +164,20 @@ def load_data(instruments=None,
                 print("")
                 get_orbit_files()
 
+            # If we want to only download new files (i.e., files not already on the user's machine),
+            # make of a note of what requested downloads already are on the user's machine.
+            if new_files:
+                files_already_on_hd = get_new_files(s, data_dir, instr, level)
+
             i = 0
             display_progress(i, len(s))
             for f in s:
                 i = i+1
                 full_path = create_dir_if_needed(f, data_dir, level)
-                get_file_from_site(f, public, full_path)
+                if new_files:
+                    get_file_from_site(f, public, full_path, files_on_hd=files_already_on_hd)
+                else:
+                    get_file_from_site(f, public, full_path)
                 display_progress(i, len(s))
 
                 downloaded_files.append(os.path.join(full_path, f))
